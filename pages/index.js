@@ -3,189 +3,434 @@ import Graph from "react-graph-vis";
 import { v4 as uuidv4 } from "uuid";
 import Head from 'next/head'
 import styles from '../styles/Home.module.css'
+import React from 'react';
 
-// Graph options
 const options = {
-  layout: {
-    hierarchical: {
-      enabled: false,
-    }
-  },
-  edges: {
-    color: "#ABABAB"
-  },
-  nodes: {
-    color: "#BBBBBB"
-  },
-  physics: {
-    enabled: false
-  },
+  layout: { hierarchical: false },
+  edges: { color: "#ABABAB" },
+  nodes: { color: "#BBBBBB" },
+  physics: { enabled: false },
   interaction: { multiselect: false, dragView: false }
 };
 
-// Default graph data
 const defaultGraph = {
-  nodes: [
-    { id: 1, label: "Start", title: null }
-  ],
+  nodes: [{ id: 1, label: "q0", title: null }],
   edges: []
 };
 
+
+const automataInput = {
+  "q": [
+    "q0",
+    "q2",
+    "q3",
+    "q4"
+  ],
+  "sigma": [
+    "0",
+    "1",
+    ""
+  ],
+  "delta": {
+    "q0": {
+      "0": [
+        "q2",
+        "q3",
+        "q4"
+      ],
+      "1": "q4",
+      "": "q4"
+    },
+    "q2": {
+      "1": [
+        "q2",
+        "q3",
+        "q4"
+      ]
+    },
+    "q3": {},
+    "q4": {
+      "1": [
+        "q2",
+        "q0"
+      ]
+    }
+  },
+  "initial_state": "q0",
+  "f": [
+    "q4"
+  ]
+};
+
+
+// Call the function with the input after 1 second
+
+
 export default function Home() {
   const [graphData, setGraphData] = useState(defaultGraph);
-  const [firstNode, setFirstNode] = useState(1);
-  const [secondNode, setSecondNode] = useState(1);
+  const [fromState, setFromState] = useState(1);
+  const [toState, setToState] = useState(1);
   const [inputString, setInputString] = useState('');
+  const [transitionSymbol, setTransitionSymbol] = useState('0');
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  // Automata data structure
+  const [automata, setAutomata] = useState({
+    q: ['q0'],
+    sigma: ['0', '1',''],
+    delta: { 'q0': {} },
+    initial_state: 'q0',
+    f: []
+  });
 
-  const addNewState = (accptingState) => {
-    let newGraph = JSON.parse(JSON.stringify(graphData));
-    const ids = newGraph.nodes.map(x => x.id);
-    const newId = Math.max(...ids) + 1;
-    newGraph.nodes.push(accptingState ?
-      { id: newId, label: `Q${newId}`, borderWidth: 3, color: { border: '#000000' }, title: 'accepting' }
-      : { id: newId, label: `Q${newId}`, title: null }
-    );
-    setGraphData(newGraph);
-  }
+  const addNewState = (accepting) => {
+    const newId = Math.max(...graphData.nodes.map(n => n.id)) + 1;
+    const newState = `q${newId}`;
+    
+    setGraphData(prev => ({
+      nodes: [...prev.nodes, { 
+        id: newId, 
+        label: newState,
+        ...(accepting && { borderWidth: 3, color: { border: '#000000' }, title: 'accepting' })
+      }],
+      edges: prev.edges
+    }));
 
-  const addEdge = (nodeId1, nodeId2, label = '0') => {
-    let newGraph = JSON.parse(JSON.stringify(graphData));
+    setAutomata(prev => ({
+      ...prev,
+      q: [...prev.q, newState],
+      delta: { ...prev.delta, [newState]: {} },
+      ...(accepting && { f: [...prev.f, newState] })
+    }));
+  };
 
-    // Check if edge exists already
-    const existingEdge = newGraph.edges.find(x => x.from === parseInt(nodeId1) && x.to === parseInt(nodeId2));
-    const existingOutTransition = newGraph.edges.find(x => x.from === parseInt(nodeId1) && x.label.includes(label)); 
+  const addTransition = () => {
+    const symbol=transitionSymbol;
+    if(transitionSymbol==""){
+      symbol='ε';
 
-    if (existingEdge) {
-      if (existingEdge.label !== label) {
-        existingEdge.label = '0, 1';
-      }
-    // Check if edge with same value originates from this node already
-    } else if (existingOutTransition) {
-      const fromNode = newGraph.nodes.find(x => x.id === nodeId1);
-      alert(`${fromNode.label} has a transition with value ${label} already`)
-    // otherwise add new edge
-    } else {
-      newGraph.edges.push({ from: parseInt(nodeId1), to: parseInt(nodeId2), label: label, smooth: { enabled: true, type: 'curvedCW', roundness: 1 } });
     }
-    setGraphData(newGraph);
-  };
-
-  const handleState1Change = (event) => {
-    setFirstNode(event.target.value);
-  };
-
-  const handleState2Change = (event) => {
-    setSecondNode(event.target.value);
-  }
-
-  const resetGraph = () => {
-    setGraphData(defaultGraph);
-  };
-
-  // Allow only binary strings
-  const handleStringInput = (e) => e.target.value.match(/(^[01]+$|^$)/g) && setInputString(e.target.value);
-
-  const checkInputString = () => {
-    const currNodeId = 1;
-
-    // Check if input string isn't empty
-    const accepted = inputString.length > 0;
-
-    // traverse automata according to input
-    [...inputString].forEach((value, idx) => {
-      let nextEdge = graphData.edges.find(x => x.from === currNodeId && x.label.includes(value));
-      if (nextEdge ) {
-        currNodeId = nextEdge.to;
+    const sourceNode = graphData.nodes.find(n => n.id === fromState);
+    const targetNode = graphData.nodes.find(n => n.id === toState);
+    // Update graph visualization
+    setGraphData(prev => {
+      const existingEdge = prev.edges.find(e => 
+        e.from === fromState && e.to === toState
+      );
+      
+      if (existingEdge) {
         
-        // Check if last state is accepting state
-        if (idx === inputString.length - 1) {
-          const currNodeObj = graphData.nodes.find(x => x.id === currNodeId);
-          accepted = !!currNodeObj.title && currNodeObj.title === "accepting";
-        }
-
-        return
-      } else {
-        accepted = false;
+        return {
+          ...prev,
+          edges: prev.edges.map(e => 
+            e === existingEdge ? {
+              ...e,
+              label: [...new Set([...e.label.split(', '), symbol])].join(', ')
+            } : e
+          )
+        };
       }
+      return {
+        ...prev,
+        edges: [...prev.edges, {
+          from: fromState,
+          to: toState,
+          label: symbol,
+          smooth: { enabled: true, type: 'curvedCW', roundness: 1 }
+        }]
+      };
     });
 
-    alert(accepted ? 'String accepted' : 'String not accepted');
-  }
+    // Update automata data structure
+    setAutomata(prev => {
+      const newDelta = { ...prev.delta };
+      const transitions = newDelta[sourceNode.label][transitionSymbol] || [];
+      
+      newDelta[sourceNode.label] = {
+        ...newDelta[sourceNode.label],
+        [transitionSymbol]: [...new Set([...transitions, targetNode.label])]
+      };
+      
+      return { ...prev, delta: newDelta };
+    });
+  };
 
-  const makeStartStateAccepting = () => {
-    let newGraph = JSON.parse(JSON.stringify(graphData));
-    const startNode = newGraph.nodes.find(x => x.id === 1);
-    startNode.borderWidth = 3;
-    startNode.color = { border: '#000000' };
-    startNode.title = 'accepting';
 
-    setGraphData(newGraph);
-  }
+  const consAuto = (automatonData) => {
+    if (typeof automatonData === 'string') {
+      automatonData = JSON.parse(automatonData);
+    }
+  
+    // 1. Create state map and node list
+    const stateMap = {};
+    let nodeId = 1;
+    
+    // Initialize with initial state
+    const initialState = automatonData.initial_state || 'q0';
+    const nodes = [{
+      id: nodeId,
+      label: initialState,
+      ...(automatonData.f.includes(initialState) && { 
+        borderWidth: 3, 
+        color: { border: '#000000' }, 
+        title: 'accepting' 
+      })
+    }];
+    stateMap[initialState] = nodeId++;
+  
+    // 2. Create all nodes first
+    automatonData.q.forEach(state => {
+      if (state !== initialState) {
+        nodes.push({
+          id: nodeId,
+          label: state,
+          ...(automatonData.f.includes(state) && { 
+            borderWidth: 3, 
+            color: { border: '#000000' }, 
+            title: 'accepting' 
+          })
+        });
+        stateMap[state] = nodeId++;
+      }
+    });
+  
+    // 3. Create transitions
+    const edges = [];
+    Object.entries(automatonData.delta).forEach(([fromState, transitions]) => {
+      Object.entries(transitions).forEach(([symbol, toStates]) => {
+        const targets = Array.isArray(toStates) ? toStates : [toStates];
+        targets.forEach(toState => {
+          edges.push({
+            from: stateMap[fromState],
+            to: stateMap[toState],
+            label: symbol === '' ? 'ε' : symbol,
+            smooth: { enabled: true, type: 'curvedCW', roundness: 1 }
+          });
+        });
+      });
+    });
+  
+    // 4. Update state in one batch
+    setGraphData({ nodes, edges });
+    setAutomata({
+      q: automatonData.q,
+      sigma: automatonData.sigma,
+      delta: automatonData.delta,
+      initial_state: initialState,
+      f: automatonData.f
+    });
+  };
+  
 
+  // Function to call /dfa2nfa endpoint
+  const handleConversion = async (inputData) => {
+    console.log("Input Data:", JSON.stringify(inputData, null, 2));
+    try {
+      const response = await fetch('http://localhost:8000/nfa2dfa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inputData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Error converting DFA to NFA');
+      }
+
+      const data = await response.json();
+      setResult(data);
+      console.log(data);
+      consAuto(data);
+      setError(null); // Clear previous errors
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    }
+  };
+
+  // Function to call /minimize endpoint
+  const handleMinimization = async (inputData) => {
+    console.log("Input Data:", JSON.stringify(inputData, null, 2));
+    try {
+      const response = await fetch('http://localhost:8000/minimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inputData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Error minimizing automaton');
+      }
+
+      const data = await response.json();
+      setResult(data);
+      console.log(data);
+      consAuto(data);
+      setError(null); // Clear previous errors
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    }
+  };
+
+
+  const exportAutomata = () => {
+    const data = {
+      ...automata,
+      delta: Object.fromEntries(
+        Object.entries(automata.delta).map(([state, transitions]) => [
+          state,
+          Object.fromEntries(
+            Object.entries(transitions).map(([symbol, states]) => [
+              symbol,
+              states.length === 1 ? states[0] : states
+            ])
+          )
+        ])
+      )
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'automata.json';
+    link.click();
+  };
+
+  const checkString = () => {
+    let currentStates = [automata.initial_state];
+    
+    // Epsilon closure implementation
+    const getEpsilonClosure = (states) => {
+      const closure = new Set(states);
+      let queue = [...states];
+      
+      while (queue.length > 0) {
+        const state = queue.pop();
+        const epsilonTransitions = automata.delta[state]?.['E'] || [];
+        for (const target of epsilonTransitions) {
+          if (!closure.has(target)) {
+            closure.add(target);
+            queue.push(target);
+          }
+        }
+      }
+      return Array.from(closure);
+    };
+
+    currentStates = getEpsilonClosure(currentStates);
+
+    for (const symbol of inputString) {
+      let nextStates = [];
+      for (const state of currentStates) {
+        const transitions = automata.delta[state]?.[symbol] || [];
+        nextStates.push(...(Array.isArray(transitions) ? transitions : [transitions]));
+      }
+      currentStates = getEpsilonClosure([...new Set(nextStates)]);
+      
+      if (currentStates.length === 0) break;
+    }
+
+    const isAccepted = currentStates.some(state => automata.f.includes(state));
+    alert(isAccepted ? 'String accepted' : 'String not accepted');
+  };
+
+  const returnCurr=()=>{
+    return ({
+      ...automata,
+      delta: Object.fromEntries(
+        Object.entries(automata.delta).map(([state, transitions]) => [
+          state,
+          Object.fromEntries(
+            Object.entries(transitions).map(([symbol, states]) => [
+              symbol,
+              states.length === 1 ? states[0] : states
+            ])
+          )
+        ])
+      )
+    });
+  };
+
+  
   return (
     <div className={styles.container}>
       <Head>
-        <title>Create Next App</title>
-        <meta name="description" content="Generated by create next app" />
+        <title>ε-NFA Visualizer</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
       <main className={styles.main}>
-        <h1 className="m-5">DFA visualization tool</h1>
+        <h1 style={{ textAlign: 'center', color: '#333' }}>ε-NFA Visualizer</h1>
 
-        <div style={{ width: '80vw' }}>
-          <div className="form-group">
-            <button className="btn btn-secondary m-2" onClick={resetGraph}>Reset DFA</button>
-
-            <button className="btn btn-secondary m-2" onClick={() => addNewState()}>Add new state</button>
-            <button className="btn btn-secondary m-2" onClick={() => addNewState(true)}>Add new accepting state</button>
-
-            <button className="btn btn-secondary m-2" onClick={() => makeStartStateAccepting()}>Make start state accepting</button>
-          </div>
-
-          <div className="row">
-            <div className="form-group col-sm-3 m-2">
-              <label>Pick state 1:</label>
-              <select value={firstNode} className="form-control" onChange={handleState1Change}>
-                {graphData.nodes.map(node => <option key={uuidv4()} value={node.id}>{node.label}</option>)}
+        <div style={{ width: '80vw', margin: '0 auto', padding: '20px' }}>
+          <div className="controls" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'row', gap: '10px' }}>
+            <button onClick={() => consAuto(automataInput)}>try</button>
+            <button onClick={() => handleConversion(returnCurr())}>Convert DFA to NFA</button>
+            <button onClick={()=>{handleMinimization(returnCurr())}}>Minimize Automaton</button>
+            <button style={{ padding: '10px', cursor: 'pointer', backgroundColor:'#658CBB' }} onClick={() => addNewState(false)}>
+              Add State
+            </button>
+            <button style={{ padding: '10px', cursor: 'pointer', backgroundColor:'#658CBB' }} onClick={() => addNewState(true)}>
+              Add Accepting State
+            </button>
+            <button style={{ padding: '10px', cursor: 'pointer', backgroundColor:'#658CBB' }} onClick={exportAutomata}>
+              Export automata.json
+            </button>
+            </div>
+            <div className="transition-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <select style={{ padding: '5px' }} value={fromState} onChange={e => setFromState(+e.target.value)}>
+                {graphData.nodes.map(node => (
+                  <option key={node.id} value={node.id}>{node.label}</option>
+                ))}
               </select>
-            </div>
-            <div className="form-group col-sm-3 m-2">
-              <label>Pick state 2:</label>
-              <select value={secondNode} className="form-control" onChange={handleState2Change}>
-                {graphData.nodes.map(node => <option key={uuidv4()} value={node.id}>{node.label}</option>)}
+              
+              <input 
+                type="text"
+                value={transitionSymbol}
+                onChange={e => setTransitionSymbol(e.target.value)}
+                placeholder="Symbol"
+                style={{ width: '60px', textAlign: 'center' }}
+              />
+              
+              <select style={{ padding: '5px' }} value={toState} onChange={e => setToState(+e.target.value)}>
+                {graphData.nodes.map(node => (
+                  <option key={node.id} value={node.id}>{node.label}</option>
+                ))}
               </select>
+              
+              <button style={{ padding: '10px', cursor: 'pointer' }} onClick={addTransition}>
+                Add Transition
+              </button>
             </div>
-            <div className="form-group col-sm-3 m-2 d-flex">
-              <div className="btn-group align-self-end" role="group" aria-label="Add edge">
-                <input type="button" className="btn btn-primary" onClick={() => addEdge(firstNode, secondNode)} value="Add 0 transition" />
-                <input type="button" className="btn btn-primary" onClick={() => addEdge(firstNode, secondNode, '1')} value="Add 1 transition" />
-              </div>  
+
+            <div className="input-test" style={{ marginTop: '10px' }}>
+              <input
+                type="text"
+                value={inputString}
+                onChange={e => setInputString(e.target.value.replace(/[^01]/g, ''))}
+                placeholder="Enter test string"
+                style={{ padding: '5px', width: '150px' }}
+              />
+              <button style={{ padding: '10px', cursor: 'pointer', marginLeft: '5px' }} onClick={checkString}>
+                Test String
+              </button>
             </div>
           </div>
 
-          <div className="row">
-            <div className="form-group col-sm-6 m-2">
-              <label>Binary input string: </label>
-              <input type="text" value={inputString}
-                className="form-control"
-                onChange={handleStringInput} 
-                placeholder="Input string..." />
-            </div>
-            <div className="form-group col-sm-4 d-flex m-2">
-              <input type="button" onClick={checkInputString} className="btn btn-success align-self-end"  value="Check string" />
-            </div>
+          <div className="graph-container" style={{ marginTop: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
+            <Graph
+              graph={graphData}
+              options={options}
+              key={JSON.stringify(graphData)}
+              style={{ height: "500px", width: "100%" }}
+            />
           </div>
-        </div>
-        
-        <div style={{ height: "50vh", width: "80vw", border: "1px solid" }}>
-          <Graph
-            key={uuidv4()}
-            graph={graphData}
-            options={options}
-          />
         </div>
       </main>
     </div>
-  )
+  );
 }
