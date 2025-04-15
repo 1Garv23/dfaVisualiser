@@ -1,8 +1,10 @@
+from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from automathon import DFA, NFA
 from typing import Dict, Any
+from collections import deque
+from automathon import DFA, NFA
 from collections import deque
 
 app = FastAPI()
@@ -29,6 +31,14 @@ class AutomatonRequest(BaseModel):
 
 class RegexRequest(BaseModel):
     regex: str
+
+class AcceptanceRequest(BaseModel):
+    string: str
+    q: list
+    sigma: list
+    delta: Dict[str, Dict[str, Any]]
+    initial_state: str
+    f: list
 
 class State:
     def __init__(self):
@@ -155,6 +165,16 @@ class RegexToENFA:
         
         self.stack.append(NFAFragment(start, end))
 
+@app.post("/check-acceptance")
+async def check_acceptance(request: AcceptanceRequest):
+    try:
+        nfa = json_data_to_nfa(request.dict())
+        return {"accepted": nfa.accept(request.string)}
+    except ValueError as e:
+        raise HTTPException(400, detail=f"Invalid input: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, detail=f"Server error: {str(e)}")
+
 def nfa_to_json(nfa_fragment, alphabet):
     state_map = {}
     q = deque([nfa_fragment.start])
@@ -245,3 +265,4 @@ async def regex_to_enfa(request: RegexRequest):
         return nfa_to_json(enfa, converter.alphabet)
     except Exception as e:
         raise HTTPException(400, detail=f"Error: {str(e)}")
+    

@@ -74,6 +74,8 @@ export default function Home() {
   const [transitionSymbol, setTransitionSymbol] = useState('0');
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [regex, setRegex] = useState('');
+
   // Automata data structure
   const [automata, setAutomata] = useState({
     q: ['q0'],
@@ -300,42 +302,96 @@ export default function Home() {
   };
 
   const checkString = () => {
-    let currentStates = [automata.initial_state];
-    
-    // Epsilon closure implementation
-    const getEpsilonClosure = (states) => {
-      const closure = new Set(states);
-      let queue = [...states];
-      
-      while (queue.length > 0) {
-        const state = queue.pop();
-        const epsilonTransitions = automata.delta[state]?.['E'] || [];
-        for (const target of epsilonTransitions) {
-          if (!closure.has(target)) {
-            closure.add(target);
-            queue.push(target);
-          }
-        }
-      }
-      return Array.from(closure);
+    const requestData = {
+      ...automata,
+      delta: Object.fromEntries(
+        Object.entries(automata.delta).map(([state, transitions]) => [
+          state,
+          Object.fromEntries(
+            Object.entries(transitions).map(([symbol, states]) => [
+              symbol,
+              states.length === 1 ? states[0] : states
+            ])
+          )
+        ])
+      ),
+      string: inputString
     };
-
-    currentStates = getEpsilonClosure(currentStates);
-
-    for (const symbol of inputString) {
-      let nextStates = [];
-      for (const state of currentStates) {
-        const transitions = automata.delta[state]?.[symbol] || [];
-        nextStates.push(...(Array.isArray(transitions) ? transitions : [transitions]));
-      }
-      currentStates = getEpsilonClosure([...new Set(nextStates)]);
-      
-      if (currentStates.length === 0) break;
-    }
-
-    const isAccepted = currentStates.some(state => automata.f.includes(state));
-    alert(isAccepted ? 'String accepted' : 'String not accepted');
+  
+    checkAcceptance(requestData)
+      .catch(error => {
+        alert(`Error: ${error.message}`);
+      });
   };
+  
+  async function checkAcceptance(requestData) {
+    try {
+      const response = await fetch('http://localhost:8000/check-acceptance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData), // Fixed JSON stringification
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Handle FastAPI validation errors (422) and custom errors
+        let errorMessage;
+        if (Array.isArray(errorData.detail)) {
+          errorMessage = errorData.detail.map(e => e.msg).join(', ');
+        } else {
+          errorMessage = errorData.detail || JSON.stringify(errorData);
+        }
+        
+        throw new Error(errorMessage);
+      }
+  
+      const responseData = await response.json();
+      
+      if (responseData.accepted) {
+        alert('✅ The string is ACCEPTED!');
+      } else {
+        alert('❌ The string is REJECTED');
+      }
+      
+      return responseData;
+    } catch (error) {
+      console.error('Error in checkAcceptance:', error);
+      alert(`Error: ${error.message}`);
+      throw error;
+    }
+  }
+  
+  async function handleConvertRegexToDFA() {
+    try {
+      const response = await fetch('http://localhost:8000/regex-to-enfa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regex }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        let errorMessage;
+        if (Array.isArray(errorData.detail)) {
+          errorMessage = errorData.detail.map(e => e.msg).join(', ');
+        } else {
+          errorMessage = errorData.detail || JSON.stringify(errorData);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Pass the JSON data directly to consAuto
+      const data = await response.json();
+      consAuto(data);
+
+      alert('✅ DFA created successfully!');
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+    }
+  }
 
   const returnCurr=()=>{
     return ({
@@ -369,7 +425,7 @@ export default function Home() {
           <div className="controls" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'row', gap: '10px' }}>
             <button onClick={() => consAuto(automataInput)}>try</button>
-            <button onClick={() => handleConversion(returnCurr())}>Convert DFA to NFA</button>
+            <button onClick={() => handleConversion(returnCurr())}>Convert NFA to DFA</button>
             <button onClick={()=>{handleMinimization(returnCurr())}}>Minimize Automaton</button>
             <button style={{ padding: '10px', cursor: 'pointer', backgroundColor:'#658CBB' }} onClick={() => addNewState(false)}>
               Add State
@@ -419,6 +475,17 @@ export default function Home() {
                 Test String
               </button>
             </div>
+            <div>
+      <input
+        type="text"
+        value={regex}
+        onChange={e => setRegex(e.target.value)}
+        placeholder="Enter regular expression"
+      />
+      <button onClick={handleConvertRegexToDFA}>
+        Convert to DFA
+      </button>
+    </div>
           </div>
 
           <div className="graph-container" style={{ marginTop: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
